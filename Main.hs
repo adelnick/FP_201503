@@ -1,16 +1,19 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main
 
 where
 
+import System.IO
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Maybe (fromMaybe)
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
-import System.IO 
+import Data.List (intercalate)
 import Data.List.Split (splitOn)
+import qualified Data.Text    as T
+import qualified Data.Text.IO as T
 
-import           Text.Parsec
-import           Text.Parsec.String  (Parser)
 
 type Region     = String
 type Bug        = String
@@ -22,6 +25,9 @@ type BugDB      = (AllBugs, BRQData)
 
 type QtyRegions   = (Quantity, [Region])
 type BugInputData = (Bug, [QtyRegions])
+
+type States      = M.Map Region Double
+type Frequencies = M.Map Quantity Double
 
 ------------ Maintaining and querying DB      ------------
 
@@ -45,10 +51,12 @@ fillBugDB db = foldl addBugInfo db
 getNrOfBugs :: RegionData -> Int
 getNrOfBugs = M.size
 
-getNrOfBugsStat :: BugDB -> (Region, Int)
-getNrOfBugsStat = map (\ (x,y) -> (x, getNrOfBugs y)). toList . snd
+getNrOfBugsStat :: BugDB -> [(Region, Int)]
+getNrOfBugsStat = map (\ (x,y) -> (x, getNrOfBugs y)) . M.toList . snd
 
 ------------ Exporting to CSV    ------------
+allBugsToCSV :: AllBugs -> String
+allBugsToCSV = (';' : ) . intercalate ";" . S.toList
 
 regionDataToCSV :: AllBugs -> RegionData -> String
 regionDataToCSV a rd = S.foldl (rdToCSV rd) "" a
@@ -56,44 +64,55 @@ regionDataToCSV a rd = S.foldl (rdToCSV rd) "" a
                                                                       Nothing  -> (';' : s)
 
 exportToCSV :: BugDB -> String
-exportToCSV (a, rbq) = unlines . map (\ (x, y) -> x ++ (';' : regionDataToCSV a y)) . M.toList $ rbq
+exportToCSV (a, rbq) = unlines . (allBugsToCSV a :) . map (\ (x, y) -> x ++ (';' : regionDataToCSV a y)) . M.toList $ rbq
+
+printUTFString :: String -> IO ()
+printUTFString = T.putStr . T.pack
 
 ------------ Reading and Parsing ------------
 
+qtyRegionsParser :: String -> QtyRegions
+qtyRegionsParser s = let (q,rs) = span (/= ':') s
+                     in (q, splitOn ", " (tail rs))
 
+parseBugInfo :: String -> BugInputData                               -- No error handling, it's tedious
+parseBugInfo xs = let (b : _ : ys) = lines xs
+                  in (b, map qtyRegionsParser ys)
 
-lineParser :: Parser String
-lineParser = manyTill anyChar (try newline)
-
-bugParser :: Parser Bug
-bugParser = lineParser
-
-qtyRegionsParser :: Parser QtyRegions
-qtyRegionsParser = (,) <$> manyTill anyChar (string ": ") 
-                       <*> (getRegions <$> lineParser) -- it's easier to parse out a line and split it later, as the region name is not strictly defined
-
-getRegions :: String -> [Region]
-getRegions = splitOn ", "
-
-bugInfoParser :: Parser BugInputData
-bugInfoParser = (,) <$> bugParser <* spaces 
-                    <*> many (qtyRegionsParser <* spaces)
-
-parseBugInfo :: String -> Either ParseError BugInputData
-parseBugInfo = runParser bugInfoParser () ""
-
-readBugsData :: String -> IO (Maybe BugInputData)
+readBugsData :: String -> IO (BugInputData)
+readBugsData f = do { t <- T.readFile f
+                    ; return $ parseBugInfo . T.unpack $ t
+                    }
+{-
 readBugsData f = do { handle <- openFile f ReadMode
                     ; hSetEncoding handle utf8_bom
                     ; fc <- hGetContents handle
-                    ; let ebi = parseBugInfo fc
-                    ; return (case ebi of (Left err) -> Nothing
-                                          (Right bi) -> Just bi)
+                    ; return $ parseBugInfo fc
                     }
+-}
+
+parseStates :: String -> States
+parseStates s = foldl insState M.empty (map convert (lines s))
+                where convert = (\(x,y) -> (tail y, read x :: Double)) . span (/= ' ')
+                      insState m (s,v) = M.insert s v m
+
+readStates :: String -> IO (States)
+readStates f = do { t <- T.readFile f
+                  ; return $ parseStates . T.unpack $ t
+                  }
+
+--parseFrequencies :: String -> Frequencies
+--parseFrequencies = map (insert . flip . span (== ' ')) . lines
 
 ---------------------------------------------
 
 main :: IO ()
-main = do { return ();
+main = do { c <- readBugsData "D:/Git/FP_201503/data/Aurata.dat"
+          ; let db = addBugInfo (S.empty, M.empty) c
+          ; let csv = exportToCSV db
+          ; print csv
+          ; printUTFString csv
+          ; s <- readStates "D:/Git/FP_201503/data/States.txt"
+          ; printUTFString $ show s
           }
 	  
