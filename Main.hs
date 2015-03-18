@@ -184,7 +184,5 @@ userMenu ds@(db,s,f) = do { print "1 - Load bug info from file"
 
 main :: IO ()
 main = do { userMenu createDS
-          ; f <- readStates "S.txt"
-          ; printUTFString . show $ f
           }
 	  
