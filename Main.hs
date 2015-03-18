@@ -33,6 +33,8 @@ type BugExtinctionRisk = (Bug,Double)
 
 type Dataset = (BugDB, States, Frequencies)
 
+trimLeft :: String -> String
+trimLeft = dropWhile (== ' ')
 ------------ Maintaining and querying Dataset      ------------
 
 createDS = ((S.empty, M.empty), M.empty, M.empty)
@@ -69,7 +71,7 @@ calcBugExtinctionRisk :: BRQData -> States -> Frequencies -> Bug -> BugExtinctio
 calcBugExtinctionRisk brq s f b = (b, M.foldWithKey getRisk 0.0 brq)
                                  where getRisk r rd extCoef = extCoef + (s M.! r) * (fCoef rd)
                                        fCoef rd = let mbQ = M.lookup b rd
-                                                  in case mbQ of (Just q) -> (f M.! (rd M.! b))
+                                                  in case mbQ of (Just q) -> (f M.! q)
                                                                  Nothing  -> 0.0
  
 
@@ -92,7 +94,7 @@ printUTFString :: String -> IO ()
 printUTFString = T.putStr . T.pack
 
 showNrOfBugsStat :: [(Region, Int)] -> String
-showNrOfBugsStat = unlines . map (\ (x,y) -> show x ++ (':' : ' ' : show y))
+showNrOfBugsStat = unlines . map (\ (x,y) -> x ++ (':' : ' ' : show y))
 
 showExtinctionRisk :: BugExtinctionRisk -> String
 showExtinctionRisk (b,x) = b ++ (';' : ' ' : show x)
@@ -113,7 +115,7 @@ readBugData f = do { t <- T.readFile f
                     }
 parseStates :: String -> States
 parseStates s = foldl insState M.empty (map convert (filter (not . null) (lines s)))
-                where convert = (\(x,y) -> (tail y, read x :: Double)) . span (/= ' ')
+                where convert = (\(x,y) -> (trimLeft y, read x :: Double)) . span (/= ' ')
                       insState m (s,v) = M.insert s v m
 
 readStates :: String -> IO (States)
@@ -123,10 +125,10 @@ readStates f = do { t <- T.readFile f
 
 parseFrequencies :: String -> Frequencies
 parseFrequencies s = foldl insFrequency M.empty (map convert (filter (not . null) (lines s)))
-                where convert = (\(x,y) -> (tail y, read x :: Double)) . span (/= ' ')
+                where convert = (\(x,y) -> (trimLeft y, read x :: Double)) . span (/= ' ')
                       insFrequency m (s,v) = M.insert s v m
 
-readFrequencies :: String -> IO (States)
+readFrequencies :: String -> IO (Frequencies)
 readFrequencies f = do { t <- T.readFile f
                   ; return $ parseFrequencies . T.unpack $ t
                   }
@@ -182,5 +184,7 @@ userMenu ds@(db,s,f) = do { print "1 - Load bug info from file"
 
 main :: IO ()
 main = do { userMenu createDS
+          ; f <- readStates "S.txt"
+          ; printUTFString . show $ f
           }
 	  
